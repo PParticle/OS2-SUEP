@@ -229,8 +229,8 @@ AlgoStatCard:last-of-type {
 }
 
 /* 日志组件 */
-Log { 
-    height: 1fr; /* 占据 1/3 的高度 */
+RichLog { 
+    height: 1fr;
     background: #1e1e2e; 
     color: #cdd6f4; 
     border: none;

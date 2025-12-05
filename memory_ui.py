@@ -1,7 +1,7 @@
 import math
 from textual.app import App, ComposeResult
 from textual.containers import Container, Grid, Vertical, Horizontal
-from textual.widgets import Header, Footer, Static, Button, Log, Label, Input
+from textual.widgets import Header, Footer, Static, Button, RichLog, Label, Input
 from textual.reactive import reactive
 from textual_plotext import PlotextPlot
 from textual.events import Blur, Click  # 关键：引入 Click 事件
@@ -54,7 +54,8 @@ class MemSimApp(App):
     BINDINGS = [
         ("space", "toggle", "Start/Pause"),
         ("r", "reset", "Reset"),
-        ("ctrl+c", "quit", "Quit")
+        ("ctrl+c", "quit", "Quit"),
+        ("q", "quit", "Quit")
     ]
 
     def __init__(self):
@@ -95,14 +96,14 @@ class MemSimApp(App):
         with Container(id="log-panel"):
             with Container(id="chart-container"):
                 yield PlotextPlot(id="miss-chart-plot")
-            yield Log(id="sys-log")
+            yield RichLog(id="sys-log", markup=True, wrap=True)
             
         yield Container(id="memory-panel")
 
         yield Footer()
 
     async def on_mount(self):
-        self.query_one("#sys-log").write_line("System Initialized.")
+        self.query_one("#sys-log").write("System Initialized.")
         self.update_active_card("FIFO")
         self.init_chart()
         await self.change_memory_size(self.current_blocks)
@@ -145,7 +146,7 @@ class MemSimApp(App):
                 if 1 <= val <= 10:
                     await self.change_memory_size(val)
                 else:
-                    self.query_one("#sys-log").write_line("[red]Error: Size must be 1-10[/]")
+                    self.query_one("#sys-log").write("[red]Error: Size must be 1-10[/]")
                     # 恢复原值
                     event.input.value = str(self.current_blocks)
             except ValueError:
@@ -156,7 +157,7 @@ class MemSimApp(App):
         if self.timer: self.timer.stop()
         self.current_blocks = size
         
-        self.query_one("#sys-log").write_line(f"Resizing to {size} blocks...")
+        self.query_one("#sys-log").write(f"Resizing to {size} blocks...")
         self.logic = PageManager(memory_blocks=size)
         if self.logic.mode == "BELADY":
             self.logic.load_belady_sequence()
@@ -209,17 +210,17 @@ class MemSimApp(App):
         self.refresh_chart()
         self.update_ui_reset()
         self.query_one("#sys-log").clear()
-        self.query_one("#sys-log").write_line("[bold magenta]=== Belady's Anomaly Demo ===[/]")
-        self.query_one("#sys-log").write_line("Seq: 1,2,3,4,1,2,5,1,2,3,4,5")
-        self.query_one("#sys-log").write_line("1. Set RAM to 3 -> Run -> Check Faults (Expected: 9)")
-        self.query_one("#sys-log").write_line("2. Set RAM to 4 -> Run -> Check Faults (Expected: 10)")
+        self.query_one("#sys-log").write("[bold magenta]=== Belady's Anomaly Demo ===[/]")
+        self.query_one("#sys-log").write("Seq: 1,2,3,4,1,2,5,1,2,3,4,5")
+        self.query_one("#sys-log").write("1. Set RAM to 3 -> Run -> Check Faults (Expected: 9)")
+        self.query_one("#sys-log").write("2. Set RAM to 4 -> Run -> Check Faults (Expected: 10)")
         
         self.query_one("#btn-start").label = "START"
         self.query_one("#btn-start").remove_class("pause")
 
     def set_view_algorithm(self, algo):
         self.logic.view_algo_name = algo
-        self.query_one("#sys-log").write_line(f"View: {algo}")
+        self.query_one("#sys-log").write(f"View: {algo}")
         for b in ["fifo", "lru", "opt", "linux"]:
             variant = "primary" if b.upper() == algo else "default"
             self.query_one(f"#btn-{b}").variant = variant
@@ -271,7 +272,7 @@ class MemSimApp(App):
             if self.logic.mode == "BELADY" and self.logic.view_algo_name == "FIFO":
                 misses = self.logic.algos["FIFO"].miss_count
                 blocks = self.current_blocks
-                self.query_one("#sys-log").write_line(f"[magenta]Result: {blocks} Blocks -> {misses} Misses[/]")
+                self.query_one("#sys-log").write(f"[magenta]Result: {blocks} Blocks -> {misses} Misses[/]")
             
             return
 
@@ -329,7 +330,7 @@ class MemSimApp(App):
                 msg += f" -> Swap {current_algo_res['swapped']}"
                 if current_algo_res["is_write_back"]:
                     msg += " [bold yellow](WRITE BACK)[/]"
-            self.query_one("#sys-log").write_line(msg)
+            self.query_one("#sys-log").write(msg)
 
     def update_ui_reset(self):
         for algo in ["FIFO", "LRU", "OPT", "LINUX"]:
