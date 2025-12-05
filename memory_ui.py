@@ -4,9 +4,24 @@ from textual.containers import Container, Grid, Vertical, Horizontal
 from textual.widgets import Header, Footer, Static, Button, Log, Label, Input
 from textual.reactive import reactive
 from textual_plotext import PlotextPlot
+from textual.events import Blur, Click  # 关键：引入 Click 事件
 
 # 导入逻辑层
 from memory_model import PageManager
+
+# ==========================================
+# 自定义组件 (Custom Widgets)
+# ==========================================
+
+class SmartInput(Input):
+    """
+    智能输入框：
+    不仅支持回车提交，还支持在失去焦点 (Blur) 时自动提交。
+    """
+    def on_blur(self, event: Blur) -> None:
+        # 当失去焦点时，手动触发一个 Submitted 消息
+        # 这样主程序就会以为用户按了回车，执行相同的更新逻辑
+        self.post_message(self.Submitted(self, self.value))
 
 class AlgoStatCard(Static):
     def __init__(self, algo_name):
@@ -29,8 +44,11 @@ class MemBlock(Static):
         yield Label(self.page_num, classes="mem-page")
         yield Label(self.meta_info, classes="mem-meta")
 
+# ==========================================
+# 主程序 (Main App)
+# ==========================================
+
 class MemSimApp(App):
-    # 指向独立的 CSS 文件
     CSS_PATH = "styles.tcss"
 
     BINDINGS = [
@@ -42,7 +60,6 @@ class MemSimApp(App):
     def __init__(self):
         super().__init__()
         self.current_blocks = 4
-        # 实例化逻辑层
         self.logic = PageManager(memory_blocks=self.current_blocks)
         self.timer = None
         self.sim_running = False 
@@ -62,7 +79,8 @@ class MemSimApp(App):
         with Container(id="controls-panel"):
             with Container(id="setting-row"):
                 yield Label("RAM (1-10):")
-                yield Input(placeholder="4", value="4", type="integer", id="input-size")
+                # 使用自定义的 SmartInput
+                yield SmartInput(placeholder="4", value="4", type="integer", id="input-size")
             
             with Container(id="algo-buttons"):
                 yield Button("FIFO", id="btn-fifo", variant="primary")
@@ -97,15 +115,39 @@ class MemSimApp(App):
         plt.ylabel("Miss %")
         plt.ylim(0, 100)
 
+    # === 新增：全局点击事件处理 ===
+    def on_click(self, event: Click) -> None:
+        """
+        处理全局点击：如果点击了不可聚焦的区域（如背景、Label），
+        则强制让当前的输入框失焦，从而触发更新。
+        """
+        # 获取当前拥有焦点的组件
+        focused_widget = self.focused
+        
+        # 只有当焦点在我们的输入框上时才处理
+        if focused_widget and focused_widget.id == "input-size":
+            # 如果点击的目标不是输入框本身，且该目标本身不能获取焦点（例如点击了 Container 背景）
+            if event.widget != focused_widget and not event.widget.can_focus:
+                # 强制清除焦点 -> 这会触发 SmartInput.on_blur -> 触发更新
+                self.set_focus(None)
+
     async def on_input_submitted(self, event: Input.Submitted):
+        """处理内存大小修改 (支持回车和失焦提交)"""
         if event.input.id == "input-size":
             try:
                 if not event.value: return 
                 val = int(event.value)
+                
+                # 性能优化：如果数值没变，不执行重置
+                if val == self.current_blocks:
+                    return
+
                 if 1 <= val <= 10:
                     await self.change_memory_size(val)
                 else:
                     self.query_one("#sys-log").write_line("[red]Error: Size must be 1-10[/]")
+                    # 恢复原值
+                    event.input.value = str(self.current_blocks)
             except ValueError:
                 pass
 
@@ -226,7 +268,6 @@ class MemSimApp(App):
             self.query_one("#btn-start").label = "FINISHED"
             self.query_one("#btn-start").remove_class("pause")
             
-            # 使用逻辑层的状态来检查 Belady 结果
             if self.logic.mode == "BELADY" and self.logic.view_algo_name == "FIFO":
                 misses = self.logic.algos["FIFO"].miss_count
                 blocks = self.current_blocks
@@ -260,7 +301,6 @@ class MemSimApp(App):
         for i in range(limit):
             block = self.mem_block_refs[i]
             data = mem_data[i]
-            
             block.query_one(".mem-idx").update(f"#{i}")
             
             if data is not None:
@@ -297,3 +337,7 @@ class MemSimApp(App):
             card.query_one(".card-rate").update("0.0%")
             card.query_one(".card-wb").update("WB: 0")
             card.query_one(".card-status").update("--")
+
+if __name__ == "__main__":
+    app = MemSimApp()
+    app.run()
