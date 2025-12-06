@@ -52,9 +52,9 @@ Screen {
    ========================================================================== */
 
 #stats-panel {
-    /* 使用网格布局：4列 x 1行，横向排列 4 个算法卡片 */
+    /* 使用网格布局：5列 x 1行，横向排列 4 个算法卡片 */
     layout: grid;
-    grid-size: 4 1;
+    grid-size: 5 1;
     
     background: #1e1e2e; /* 卡片背景色 */
     
@@ -166,6 +166,7 @@ AlgoStatCard:last-of-type {
     margin: 0 1; 
     border: none; 
     background: #313244; /* 默认暗色 */
+    padding: 0 1;
 } 
 
 /* 选中的算法按钮样式 (在 Python 代码中通过 add_class 添加) */
@@ -299,6 +300,25 @@ MemBlock {
 }
 
 /* --- 内存块的不同状态样式 --- */
+
+.block-list-active {
+    border: thick #a6e3a1; 
+    background: #1e2e2e;
+}
+.block-list-active .mem-meta {
+    background: #153322;
+    color: #a6e3a1;
+}
+
+/* 7. Modern Linux: Inactive List (非活跃链表) */
+/* 使用暗黄色边框，表示这些页面是置换的候选区 */
+.block-list-inactive {
+    border: solid #f9e2af;
+}
+.block-list-inactive .mem-meta {
+    background: #332e1e;
+    color: #f9e2af;
+}
 
 /* 1. 空闲状态 (Empty) */
 .block-empty { 

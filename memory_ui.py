@@ -19,8 +19,6 @@ class SmartInput(Input):
     不仅支持回车提交，还支持在失去焦点 (Blur) 时自动提交。
     """
     def on_blur(self, event: Blur) -> None:
-        # 当失去焦点时，手动触发一个 Submitted 消息
-        # 这样主程序就会以为用户按了回车，执行相同的更新逻辑
         self.post_message(self.Submitted(self, self.value))
 
 class AlgoStatCard(Static):
@@ -77,6 +75,7 @@ class MemSimApp(App):
             yield AlgoStatCard("LRU")
             yield AlgoStatCard("OPT")
             yield AlgoStatCard("LINUX")
+            yield AlgoStatCard("LINUX_NG")
             
         with Container(id="controls-panel"):
             with Container(id="setting-row"):
@@ -88,7 +87,8 @@ class MemSimApp(App):
                 yield Button("FIFO", id="btn-fifo", variant="primary")
                 yield Button("LRU", id="btn-lru", variant="default")
                 yield Button("OPT", id="btn-opt", variant="default")
-                yield Button("LINUX", id="btn-linux", variant="default")
+                yield Button("CLOCK", id="btn-linux", variant="default")
+                yield Button("LNX+", id="btn-linux_ng", variant="default")
             
             with Container(classes="action-row"):
                 yield Button("START", id="btn-start", variant="success")
@@ -195,7 +195,7 @@ class MemSimApp(App):
             self.action_toggle()
         elif bid == "btn-belady":
             self.start_belady_demo()
-        elif bid in ["btn-fifo", "btn-lru", "btn-opt", "btn-linux"]:
+        elif bid in ["btn-fifo", "btn-lru", "btn-opt", "btn-linux","btn-linux_ng"]:
             algo = bid.split("-")[1].upper()
             self.set_view_algorithm(algo)
 
@@ -222,7 +222,7 @@ class MemSimApp(App):
     def set_view_algorithm(self, algo):
         self.logic.view_algo_name = algo
         self.query_one("#sys-log").write(f"View: {algo}")
-        for b in ["fifo", "lru", "opt", "linux"]:
+        for b in ["fifo", "lru", "opt", "linux", "linux_ng"]:
             variant = "primary" if b.upper() == algo else "default"
             self.query_one(f"#btn-{b}").variant = variant
         self.update_active_card(algo)
@@ -231,7 +231,7 @@ class MemSimApp(App):
         self.refresh_chart()
 
     def update_active_card(self, active_algo):
-        for algo in ["FIFO", "LRU", "OPT", "LINUX"]:
+        for algo in ["FIFO", "LRU", "OPT", "LINUX", "linux_ng"]:
             card = self.query_one(f"#card-{algo.lower()}")
             if algo == active_algo:
                 card.add_class("card-active")
@@ -316,6 +316,8 @@ class MemSimApp(App):
                     base_classes += " block-dirty"
                 elif data.get("is_hand"):
                     base_classes += " clock-hand-frame"
+                elif self.logic.view_algo_name == "LINUX_NG":
+                    base_classes += " block-list-inactive"
                 
                 block.classes = base_classes
             else:
@@ -334,7 +336,7 @@ class MemSimApp(App):
             self.query_one("#sys-log").write(msg)
 
     def update_ui_reset(self):
-        for algo in ["FIFO", "LRU", "OPT", "LINUX"]:
+        for algo in ["FIFO", "LRU", "OPT", "LINUX", "LINUX_NG"]:
             card = self.query_one(f"#card-{algo.lower()}")
             card.query_one(".card-rate").update("0.0%")
             card.query_one(".card-wb").update("WB: 0")

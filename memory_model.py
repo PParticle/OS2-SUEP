@@ -5,7 +5,15 @@ class AlgoState:
     def __init__(self, name, memory_blocks):
         self.name = name
         self.memory_blocks = memory_blocks
-        # memory: [{"page": int, "loaded_at": int, "last_access": int, "ref_bit": int, "dirty": bool}, None, ...]
+        # memory item structure:
+        # {
+        #   "page": int, 
+        #   "loaded_at": int, 
+        #   "last_access": int, 
+        #   "ref_bit": int, 
+        #   "dirty": bool,
+        #   "is_active_list": bool  <-- 新增：标记是否在 Active 链表中
+        # }
         self.memory = [None] * memory_blocks
         
         # 统计数据
@@ -36,13 +44,21 @@ class AlgoState:
         
         if hit_idx != -1:
             # === Hit ===
-            self.memory[hit_idx]['last_access'] = current_time
-            if self.name == "LINUX":
-                self.memory[hit_idx]['ref_bit'] = 1
+            frame = self.memory[hit_idx]
+            frame['last_access'] = current_time
+
+            if self.name == "LINUX":       # old clock
+                frame['ref_bit'] = 1
+
+            elif self.name == "LINUX_NG":  # Modern Active/Inactive
+                if not frame.get('is_active_list',False):
+                    frame['is_active_list'] = True
+                # 动态平衡 如果活跃链表过长，自动选取一个最不活跃的降级
+                self._balance_lists()
             
             # 写操作标记 Dirty
             if op_type == 'W':
-                self.memory[hit_idx]['dirty'] = True
+                frame['dirty'] = True
         else:
             # === Miss ===
             status = "Miss"
@@ -54,7 +70,8 @@ class AlgoState:
                 "loaded_at": self.load_counter,
                 "last_access": current_time,
                 "ref_bit": 1,
-                "dirty": (op_type == 'W')
+                "dirty": (op_type == 'W'),
+                "is_active_list": False # 默认为非活跃
             }
             
             # 找空位
@@ -86,6 +103,15 @@ class AlgoState:
             "swapped": swapped_out,
             "is_write_back": is_write_back
         }
+    
+    def _balance_lists(self):
+        """[LINUX_NG] 维护 Active/Inactive 列表平衡"""
+        active_frames = [f for f in self.memory if f and f.get('is_active_list')]
+        target_active = self.memory_blocks // 2
+
+        if len(active_frames) > target_active:
+            victim = min(active_frames,key = lambda x:x['last_access'])
+            victim['is_active_list'] = False
 
     def _get_victim(self, future_pages):
         valid_frames = [f for f in self.memory if f is not None]
@@ -121,11 +147,23 @@ class AlgoState:
                     self.clock_hand = (self.clock_hand + 1) % self.memory_blocks
                     return victim_idx
             return self.clock_hand
+        
+        elif self.name == "LINUX_NG":
+            inactive_frames = [f for f in valid_frames if not f.get('is_active_list',False)]
+
+            if inactive_frames:
+                victim = min(inactive_frames, key=lambda x: x['last_access'])
+                return self.memory.index(victim)
+            else:
+                victim = min(valid_frames, key=lambda x: x['last_access'])
+                return self.memory.index(victim)
+        
         return 0
 
     def predict_next_victim(self, future_pages):
-        """预测下一个受害者（仅用于UI高亮）"""
+        """预测下一个受害者"""
         if None in self.memory: return -1
+        
         if self.name == "LINUX":
             temp_hand = self.clock_hand
             for _ in range(self.memory_blocks * 2):
@@ -149,7 +187,8 @@ class PageManager:
             "FIFO": AlgoState("FIFO", memory_blocks),
             "LRU": AlgoState("LRU", memory_blocks),
             "OPT": AlgoState("OPT", memory_blocks),
-            "LINUX": AlgoState("LINUX", memory_blocks)
+            "LINUX": AlgoState("LINUX", memory_blocks),
+            "LINUX_NG": AlgoState("LINUX_NG", memory_blocks)
         }
         
         self.current_inst_idx = 0
@@ -225,6 +264,12 @@ class PageManager:
                 if self.view_algo_name == "FIFO": meta = f"SEQ:{f['loaded_at']}"
                 elif self.view_algo_name == "LRU": meta = f"IDLE:{self.current_time - f['last_access']}"
                 elif self.view_algo_name == "LINUX": meta = f"REF:{f['ref_bit']}"
+                elif self.view_algo_name == "LINUX_NG":
+                    # 显示所属链表：ACT (Active) 或 INA (Inactive)
+                    list_name = "ACT" if f.get('is_active_list') else "INA"
+                    # 显示空闲时间，方便观察 LRU 行为
+                    idle = self.current_time - f['last_access']
+                    meta = f"{list_name}:{idle}"
                 elif self.view_algo_name == "OPT": meta = "OPT"
                 
                 if f.get('dirty'):
@@ -235,7 +280,8 @@ class PageManager:
                     "page": f['page'], 
                     "meta": meta, 
                     "is_hand": is_hand,
-                    "is_dirty": f.get('dirty', False)
+                    "is_dirty": f.get('dirty', False),
+                    "is_active_list":f.get('is_active_list',False)
                 })
 
         return {
