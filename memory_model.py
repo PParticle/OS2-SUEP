@@ -197,21 +197,17 @@ class PageManager:
         self.mode = "NORMAL"
 
     def _generate_instructions(self):
-        """生成指令序列：70%冷数据 + 30%热点数据"""
+        """生成指令序列：20%冷数据 + 80%热点数据"""
         insts = []
-        hot_page_range = (0, 39) 
-        cold_inst_ptr = 40
         for _ in range(self.total_instructions):
-            op_type = 'W' if random.random() < 0.3 else 'R'
             rand_val = random.random()
-            if rand_val < 0.7:  
-                insts.append((cold_inst_ptr, op_type))
-                cold_inst_ptr += 1
-                if cold_inst_ptr >= self.total_instructions:
-                    cold_inst_ptr = 40
+            if rand_val < 0.8:
+                hot_inst = random.randint(0, 39)
+                insts.append((hot_inst, 'W' if random.random() < 0.5 else 'R'))
             else:
-                hot_inst = random.randint(hot_page_range[0], hot_page_range[1])
-                insts.append((hot_inst, op_type))
+                cold_inst = random.randint(40, 200) 
+                insts.append((cold_inst, 'W' if random.random() < 0.9 else 'R')) # 冷数据通常读多写少
+        
         return insts[:self.total_instructions]
 
     def load_belady_sequence(self):
