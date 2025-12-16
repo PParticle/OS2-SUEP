@@ -9,15 +9,6 @@ from textual.events import Blur, Click  # 关键：引入 Click 事件
 # 导入逻辑层
 from memory_model import PageManager
 
-# === SUEP ASCII LOGO ===
-SUEP_LOGO = r"""
-    ____  _   _ _____ ____  
-   / ___|| | | | ____|  _ \ 
-   \___ \| | | |  _| | |_) |
-    ___) | |_| | |___|  __/ 
-|____/ \___/|_____|_| 
-"""
-
 class SmartInput(Input):
     """
     智能输入框：失去焦点时自动提交。
@@ -78,12 +69,16 @@ class MemBlock(Static):
         yield Label(self.page_num, classes="mem-page")
         yield Label(self.meta_info, classes="mem-meta")
     
-    def update_state(self, idx: int, data: dict, is_victim: bool, view_algo_name: str):
+    def update_state(self, idx: int, data: dict, is_victim: bool, view_algo_name: str, mode: str = "single"):
         """
         根据逻辑层传来的数据更新自身的视图
+        mode参数用于识别单进程/多进程模式
         """
-        # 更新帧号 (始终显示)
-        self.query_one(".mem-idx").update(f"#{idx}")
+        # 更新帧号和PID（多进程模式下显示PID）
+        if mode == "multi" and data and data.get("pid") is not None:
+            self.query_one(".mem-idx").update(f"#{idx} P{data['pid']}")
+        else:
+            self.query_one(".mem-idx").update(f"#{idx}")
 
         # 清除所有旧的状态类
         self.classes = ""
@@ -130,16 +125,17 @@ class MemSimApp(App):
     def __init__(self):
         super().__init__()
         self.current_blocks = 4
-        self.logic = PageManager(memory_blocks=self.current_blocks)
+        self.current_processes = 1  # 新增：当前进程数
+        self.logic = PageManager(memory_blocks=self.current_blocks, mode="single", num_processes=1)
         self.timer = None
-        self.sim_running = False 
+        self.sim_running = False
         self.plot_data_x = []
         self.plot_data_y = []
         self.mem_block_refs = []
 
         self.algo_names = ["FIFO", "LRU", "OPT", "LINUX", "LINUX_NG"]
         self.algo_histories = {
-            name: {'x': [], 'y': []} 
+            name: {'x': [], 'y': []}
             for name in self.algo_names
         }
 
@@ -157,6 +153,8 @@ class MemSimApp(App):
             with Container(id="setting-row"):
                 yield Label("RAM (1-10):")
                 yield SmartInput(placeholder="4", value="4", type="integer", id="input-size")
+                yield Label("Proc (1-5):", classes="proc-label")
+                yield SmartInput(placeholder="1", value="1", type="integer", id="input-proc")
             
             with Container(id="algo-buttons"):
                 yield Button("FIFO", id="btn-fifo", variant="primary")
@@ -170,7 +168,6 @@ class MemSimApp(App):
                 yield Button("BELADY", id="btn-belady", variant="error")
             
         with Container(id="log-panel"):
-            yield Label(SUEP_LOGO,classes="logo")
             with Container(id="chart-container"):
                 yield PlotextPlot(id="miss-chart-plot")
             yield RichLog(id="sys-log",markup=True,wrap=True)
@@ -201,10 +198,10 @@ class MemSimApp(App):
                 self.set_focus(None)
 
     async def on_input_submitted(self, event: Input.Submitted):
-        """处理内存大小修改"""
+        """处理内存大小和进程数修改"""
         if event.input.id == "input-size":
             try:
-                if not event.value: return 
+                if not event.value: return
                 val = int(event.value)
                 if val == self.current_blocks: return
 
@@ -213,6 +210,19 @@ class MemSimApp(App):
                 else:
                     self.query_one("#sys-log").write("[red]Error: Size must be 1-10[/]")
                     event.input.value = str(self.current_blocks)
+            except ValueError:
+                pass
+        elif event.input.id == "input-proc":
+            try:
+                if not event.value: return
+                val = int(event.value)
+                if val == self.current_processes: return
+
+                if 1 <= val <= 5:
+                    await self.change_process_count(val)
+                else:
+                    self.query_one("#sys-log").write("[red]Error: Proc must be 1-5[/]")
+                    event.input.value = str(self.current_processes)
             except ValueError:
                 pass
 
@@ -228,24 +238,51 @@ class MemSimApp(App):
 
 
     # === 业务逻辑 ===
+    async def change_process_count(self, count):
+        """修改进程数量"""
+        self._stop_simulation()
+        self.current_processes = count
+        mode = "multi" if count > 1 else "single"
+        self.query_one("#sys-log").write(f"Setting {count} process(es), mode: {mode}...")
+
+        # 重置逻辑层（保持当前内存大小）
+        self.logic = PageManager(
+            memory_blocks=self.current_blocks,
+            mode=mode,
+            num_processes=count
+        )
+
+        # 重置视图
+        self.reset_views()
+        self.set_view_algorithm("FIFO")
+
+        # 更新内存块显示
+        for i, block in enumerate(self.mem_block_refs):
+            block.update_state(i, None, False, "FIFO", mode)
+
     async def change_memory_size(self, size):
         self._stop_simulation()
         self.current_blocks = size
         self.query_one("#sys-log").write(f"Resizing to {size} blocks...")
-        
-        # 重置逻辑层
-        self.logic = PageManager(memory_blocks=size)
+
+        # 重置逻辑层（保持当前进程数和模式）
+        mode = "multi" if self.current_processes > 1 else "single"
+        self.logic = PageManager(
+            memory_blocks=size,
+            mode=mode,
+            num_processes=self.current_processes
+        )
         if self.logic.mode == "BELADY":
             self.logic.load_belady_sequence()
-        
+
         # 重建内存块 UI
         panel = self.query_one("#memory-panel")
         await panel.remove_children()
         self.mem_block_refs = [MemBlock() for _ in range(size)]
         await panel.mount(*self.mem_block_refs)
-        
+
         self.update_memory_grid_layout(size)
-        
+
         # 重置图表和状态
         self.plot_data_x = []
         self.plot_data_y = []
@@ -316,7 +353,7 @@ class MemSimApp(App):
         #重置为了 FIFO
         self.set_view_algorithm("FIFO")
         for i, block in enumerate(self.mem_block_refs):
-            block.update_state(i, None, False, "FIFO")
+            block.update_state(i, None, False, "FIFO", self.logic.mode)
         self.query_one("#sys-log").write("[bold red]System Reset.[/]")
     
     def _stop_simulation(self):
@@ -396,22 +433,50 @@ class MemSimApp(App):
             block = self.mem_block_refs[i]
             data = mem_data[i]
             is_victim = (i == victim_idx)
-            block.update_state(i, data, is_victim, self.logic.view_algo_name)
+            block.update_state(i, data, is_victim, self.logic.view_algo_name, self.logic.mode)
 
-        # 4. 打印日志
+        # 4. 打印日志（增强版：显示地址变换过程 + 多进程信息）
+        addr = res["inst"]
+        page_id = res["page"]
+        page_offset = addr % 10
+
+        # 进程ID标识（多进程模式）
+        pid_str = ""
+        if self.logic.mode == "multi" and res.get("pid") is not None:
+            pid_str = f"[P{res['pid']}] "
+
+        # 地址变换信息
+        addr_msg = f"[cyan]Addr:{addr}[/] → Page:{page_id}, Offset:{page_offset}"
+
+        # 查找物理帧号
+        physical_frame = -1
+        for i, frame_data in enumerate(mem_data):
+            if frame_data and frame_data["page"] == page_id:
+                # 多进程模式下需要匹配PID
+                if self.logic.mode == "single" or frame_data.get("pid") == res.get("pid"):
+                    physical_frame = i
+                    break
+
+        if physical_frame != -1:
+            physical_addr = physical_frame * 10 + page_offset
+            addr_msg += f" → [green]Frame:{physical_frame}[/] → Phys:{physical_addr}"
+
         status_str = ""
         if current_algo_res["status"] == "Miss":
             status_str = f"[red]Miss[/]"
         else:
             status_str = f"[green]HIT [/]"
-        
+
         op_str = "[blue]WRITE[/]" if res["op"] == 'W' else "READ "
-        msg = f"[{res['view_algo']}] {status_str} | {op_str} Pg {res['page']}"
+        msg = f"[{res['view_algo']}] {pid_str}{status_str} | {op_str} | {addr_msg}"
 
         if current_algo_res["swapped"] is not None:
-            msg += f" -> Swap {current_algo_res['swapped']}"
+            swap_pid_str = ""
+            if self.logic.mode == "multi" and current_algo_res.get("swapped_pid") is not None:
+                swap_pid_str = f"P{current_algo_res['swapped_pid']}:"
+            msg += f" | Swap out {swap_pid_str}Pg{current_algo_res['swapped']}"
             if current_algo_res["is_write_back"]:
-                msg += " [bold yellow](WRITE BACK)[/]"
+                msg += " [bold yellow](WB)[/]"
         self.query_one("#sys-log").write(msg)
 
 

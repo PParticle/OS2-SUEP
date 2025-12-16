@@ -120,7 +120,23 @@ AlgoStatCard:last-of-type {
   margin-top: 1;
 }
 
+/* 进程数标签样式 */
+.proc-label {
+  margin-left: 2;
+  color: #cdd6f4;
+}
+
 #input-size {
+  width: 8;
+  background: #181825;
+  border: none;
+  text-align: center;
+  margin-left: 1;
+  color: #cdd6f4;
+}
+
+/* 进程数输入框样式 */
+#input-proc {
   width: 8;
   background: #181825;
   border: none;
