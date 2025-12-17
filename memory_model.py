@@ -284,7 +284,9 @@ class PageManager:
         for pid in range(self.num_processes):
             hot_range = self.process_info[pid]["hot_range"]
             cold_range = self.process_info[pid]["cold_range"]
-            length = self.total_instructions // self.num_processes
+            # 修改：每个进程至少执行800条指令，确保工作集充分竞争
+            # 单进程：2000条；多进程：每进程800-2000条（取决于进程数）
+            length = max(800, self.total_instructions // self.num_processes)
             process_sequences[pid] = self._generate_process_sequence(
                 hot_range, cold_range, length
             )
