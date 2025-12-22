@@ -86,12 +86,15 @@ class AlgoState:
         if target_idx == -1:
             target_idx = self._get_victim(future_pages)
             victim_frame = self.memory[target_idx]
-            swapped_out = victim_frame['page']
-            swapped_pid = victim_frame.get('pid')  # 记录被换出页面的进程ID
+            if victim_frame:
+                swapped_out = victim_frame['page']
+                swapped_pid = victim_frame.get('pid')  # 记录被换出页面的进程ID
 
-            if victim_frame.get('dirty', False):
-                self.write_back_count += 1
-                is_write_back = True
+                if victim_frame.get('dirty', False):
+                    self.write_back_count += 1
+                    is_write_back = True
+            else:
+                pass
 
         # 3. 装入新页
         self.memory[target_idx] = new_frame
@@ -237,24 +240,38 @@ class PageManager:
         self.reset()
 
     def _initialize_processes(self):
-        """初始化多进程元数据"""
+        """
+        初始化多进程元数据
+        【关键修复】：所有进程使用相同的虚拟页面范围，模拟真实OS行为
+        """
         colors = ["#89b4fa", "#a6e3a1", "#f9e2af", "#f38ba8", "#cba6f7"]
         for i in range(self.num_processes):
+            # 修复：所有进程都访问相同的虚拟页面范围 Page 0-3
+            # 在真实OS中，每个进程都有独立的虚拟地址空间
+            # P0的虚拟Page 2 和 P1的虚拟Page 2 映射到不同的物理页
+            # 通过 (pid, page) 组合来唯一标识物理页
             self.process_info[i] = {
                 "name": f"P{i}",
                 "color": colors[i % len(colors)],
-                "hot_range": (i * 40, (i + 1) * 40),
-                "cold_range": (200 + i * 50, 250 + i * 50)
+                "hot_range": (0, 4),  # 所有进程都访问虚拟Page 0-3
+                "cold_range": (50, 60)  # 所有进程的冷区也一样
             }
 
     def _generate_process_sequence(self, hot_range, cold_range, length):
-        """为单个进程生成指令序列（具有局部性）"""
+        """
+        为单个进程生成指令序列（具有局部性）
+        【优化】：降低冷页面访问频率，减少噪音，使对比更鲜明。
+        """
         insts = []
         for _ in range(length):
-            if random.random() < 0.8:
+            # 修改：将热点访问概率从 0.8 提高到 0.95
+            # 只有 5% 的概率访问冷页面，保证单进程在内存足够时缺页率极低
+            if random.random() < 0.95:
+                # 热区访问
                 page = random.randint(hot_range[0], hot_range[1] - 1)
                 op = 'W' if random.random() < 0.5 else 'R'
             else:
+                # 冷区访问
                 page = random.randint(cold_range[0], cold_range[1] - 1)
                 op = 'W' if random.random() < 0.1 else 'R'
             insts.append((page * 10, op))
@@ -297,15 +314,19 @@ class PageManager:
         if self.mode == "multi":
             return self._generate_multi_process_instructions()
         else:
-            # 单进程模式：原有逻辑
+            # 单进程模式：优化后的逻辑
+            # 保持与 _generate_process_sequence 一致
             insts = []
             for _ in range(self.total_instructions):
-                rand_val = random.random()
-                if rand_val < 0.8:
+                # 修改：同样提高热点概率到 0.95
+                if random.random() < 0.95:
+                    # 修改：明确产生 0-3 的 Page (对应地址 0-39)
+                    # 这样 RAM=4 时，这 4 个页面可以完全常驻内存
                     hot_inst = random.randint(0, 39)
                     insts.append((hot_inst, 'W' if random.random() < 0.5 else 'R', None))
                 else:
-                    cold_inst = random.randint(40, 200)
+                    # 冷数据
+                    cold_inst = random.randint(400, 600)
                     insts.append((cold_inst, 'W' if random.random() < 0.1 else 'R', None))
             return insts[:self.total_instructions]
 
@@ -384,7 +405,8 @@ class PageManager:
     def reset(self):
         self.current_inst_idx = 0
         self.current_time = 0
-        self.mode = "NORMAL"
+        # Don't reset mode - preserve the multi/single setting
+        # self.mode = "NORMAL"  # BUG: This was overwriting mode="multi"!
         self.view_algo_name = "FIFO"
         self.instructions = self._generate_instructions()
         self.reset_algos()
