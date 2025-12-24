@@ -449,10 +449,7 @@ class MemSimApp(App):
         # 进程 ID 标识（多进程模式）
         pid_str = ""
         if self.logic.mode == "multi" and res.get("pid") is not None:
-            pid_str = f"[P{res['pid']}] "
-
-        # 地址变换信息
-        addr_msg = f"[cyan]Addr:{addr}[/] → Page:{page_id}, Offset:{page_offset}"
+            pid_str = f"P{res['pid']}"
 
         # 查找物理帧号
         physical_frame = -1
@@ -463,21 +460,38 @@ class MemSimApp(App):
                     physical_frame = i
                     break
 
+        # 构建格式化日志
+        proc_info = f"{pid_str:>2}" if pid_str else "  "  # 进程ID，右对齐2字符
+
+        status_str = "[red]MISS[/]" if current_algo_res["status"] == "Miss" else "[green]HIT [/]"
+        op_str = "[blue]WR[/]" if res["op"] == 'W' else "RD"
+
+        # 地址信息格式化
+        virt_addr = f"Addr:{addr:>3}"
+        page_info = f"Pg:{page_id:>2}"
+        offset_info = f"Off:{page_offset}"
+
+        # 物理地址信息
         if physical_frame != -1:
             physical_addr = physical_frame * 10 + page_offset
-            addr_msg += f" → [green]Frame:{physical_frame}[/] → Phys:{physical_addr}"
+            phys_info = f"Fr:{physical_frame} → Phys:{physical_addr:>3}"
+        else:
+            phys_info = "Fr:- → Phys:---"
 
-        status_str = "[red]Miss[/]" if current_algo_res["status"] == "Miss" else "[green]HIT [/]"
-        op_str = "[blue]WRITE[/]" if res["op"] == 'W' else "READ "
-        msg = f"[{res['view_algo']}] {pid_str}{status_str} | {op_str} | {addr_msg}"
+        # 组装基础日志
+        if pid_str:
+            msg = f"[{proc_info}] {status_str} │ {op_str} │ [cyan]{virt_addr}[/] → {page_info} {offset_info} → [green]{phys_info}[/]"
+        else:
+            msg = f"{status_str} │ {op_str} │ [cyan]{virt_addr}[/] → {page_info} {offset_info} → [green]{phys_info}[/]"
 
+        # 添加换出信息
         if current_algo_res["swapped"] is not None:
             swap_pid_str = ""
             if self.logic.mode == "multi" and current_algo_res.get("swapped_pid") is not None:
                 swap_pid_str = f"P{current_algo_res['swapped_pid']}:"
-            msg += f" | Swap out {swap_pid_str}Pg{current_algo_res['swapped']}"
-            if current_algo_res["is_write_back"]:
-                msg += " [bold yellow](WB)[/]"
+            wb_mark = " [bold yellow](WB)[/]" if current_algo_res["is_write_back"] else ""
+            msg += f" │ Swap: {swap_pid_str}Pg{current_algo_res['swapped']:>2}{wb_mark}"
+
         self.query_one("#sys-log").write(msg)
 
     def update_ui_reset(self):
